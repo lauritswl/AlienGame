@@ -1,0 +1,164 @@
+---
+title: "Alien_Game_sim"
+author: "Freddy"
+date: "2025-04-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r packages}
+pacman::p_load(tidyverse)
+```
+
+
+### read in real data
+```{r}
+data <- read_csv("AlienData.txt")
+```
+
+
+
+#### Defining the agent
+```{r}
+library(tidyverse)
+
+##Distance function (weighted city-block) ###
+distance <- function(x, y, w) {
+  sum(w * abs(x - y))
+}
+
+#Similarity function (exponential decay) ###
+similarity <- function(d, c) {
+  exp(-c * d)
+}
+
+#GCM agent function ###
+gcm <- function(w, c, obs, cat_one, quiet = TRUE) {
+  r <- numeric(nrow(obs))
+  
+  for (i in seq_len(nrow(obs))) {
+    if (!quiet && i %% 10 == 0) cat("Trial:", i, "\n")
+    
+    if (i == 1 || sum(cat_one[1:(i - 1)]) == 0 || sum(cat_one[1:(i - 1)]) == (i - 1)) {
+      r[i] <- 0.5
+    } else {
+      similarities <- sapply(1:(i - 1), function(e) {
+        d <- distance(obs[i, ], obs[e, ], w)
+        similarity(d, c)
+      })
+      
+      numer <- mean(similarities[cat_one[1:(i - 1)] == 1])
+      denom <- numer + mean(similarities[cat_one[1:(i - 1)] == 0])
+      r[i] <- numer / denom
+    }
+  }
+  
+  return(rbinom(nrow(obs), 1, r))
+}
+
+#Sim
+simulate_gcm_session <- function(weights, scaling, nrep = 1, seed = 1012) {
+  set.seed(seed)
+  
+  # Create all possible 5-dim binary combinations
+  combs <- expand.grid(f1 = 0:1, f2 = 0:1, f3 = 0:1, f4 = 0:1, f5 = 0:1)
+  stimuli <- combs[rep(1:nrow(combs), each = nrep), ] %>%
+    mutate(trial = 1:n())
+
+  # Define feedback rule (example: only f1 == 1 means danger)
+  feedback_fun <- function(f) {
+    if (f$f1 == 1) return(1) else return(0)
+  }
+  stimuli$true_category <- apply(stimuli, 1, function(row) feedback_fun(as.list(row)))
+
+  # Run GCM model to generate decisions
+  gcm_responses <- gcm(weights, scaling, stimuli[, 1:5], stimuli$true_category)
+  stimuli$response <- gcm_responses
+  stimuli$correct <- as.integer(gcm_responses == stimuli$true_category)
+  
+  return(stimuli)
+}
+
+
+
+```
+
+
+
+#create 96 trial dataset for aliens for one agent
+```{r}
+create_alien_trials <- function(n_sessions = 3) {
+  base_stimuli <- expand.grid(f1 = 0:1, f2 = 0:1, f3 = 0:1, f4 = 0:1, f5 = 0:1)
+  all_trials <- bind_rows(replicate(n_sessions, base_stimuli, simplify = FALSE)) %>%
+    mutate(trial = 1:n(),
+           session = rep(1:n_sessions, each = 32))
+  return(all_trials)
+}
+
+```
+
+
+### Define danger label
+```{r}
+get_danger_label <- function(f, session) {
+  if (session == 1) {
+    return(as.integer(f$f1 == 1 & f$f3 == 1))
+  } else if (session == 2) {
+    return(as.integer(f$f4 == 1))
+  } else {
+    return(as.integer(f$f4 == 1 & f$f5 == 1))
+  }
+}
+```
+
+
+
+### apply function
+```{r}
+alien_trials <- create_alien_trials()
+alien_trials$true_danger <- mapply(function(row_id, session) {
+  get_danger_label(as.list(alien_trials[row_id, 1:5]), session)
+}, row_id = 1:nrow(alien_trials), session = alien_trials$session)
+
+```
+
+
+```{r}
+alien_trials$response <- gcm(
+  w = c(0.2, 0.2, 0.2, 0.2, 0.2),  # initial balanced attention, we're not biased
+  c = 5,
+  obs = alien_trials[, 1:5],
+  cat_one = alien_trials$true_danger
+)
+alien_trials$correct <- as.integer(alien_trials$response == alien_trials$true_danger)
+
+```
+
+
+
+
+
+```{r}
+ggplot(agents_data, aes(x = trial, y = feedback, color = factor(agent_id))) +
+  geom_line() +
+  labs(title = "Performance of 10 agents", x = "Trial", y = "Feedback (Performance)", color = "Agent ID") +
+  theme_minimal()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
