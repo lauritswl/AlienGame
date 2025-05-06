@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 ```{r packages}
-pacman::p_load(tidyverse)
+pacman::p_load(tidyverse, patchwork)
 ```
 
 
@@ -186,51 +186,6 @@ simulate_gcm_session <- function(weights, scaling, seed = 1012) {
   gcm_responses <- gcm(weights, scaling, stimuli[, 1:5], stimuli$true_category)
   stimuli$response <- gcm_responses
   stimuli$correct <- as.integer(gcm_responses == stimuli$true_category)
-  
-  return(stimuli)
-}
-
-# Run the simulation for multiple agents
-simulate_multiple_agents <- function(n_agents = 10, weights, scaling) {
-  agent_data <- map_dfr(1:n_agents, function(id) {
-    df <- simulate_gcm_session(weights, scaling, seed = 1000 + id)
-    df$agent <- id
-    return(df)
-  })
-  
-  return(agent_data)
-}
-
-# Example usage: 10 agents, balanced attention, scaling = 5
-multi_agent <- simulate_multiple_agents(
-  n_agents = 10,
-  weights = rep(0.2, 5),
-  scaling = 0.9
-)
-
-# Check results
-head(multi_agent)
-
-```
-
-
-```{r}
-# Simulate GCM session for a single agent
-simulate_gcm_session <- function(weights, scaling, seed = 1012) {
-  set.seed(seed)
-  
-  combs <- expand.grid(f1 = 0:1, f2 = 0:1, f3 = 0:1, f4 = 0:1, f5 = 0:1)
-  stimuli <- combs[rep(1:nrow(combs), each = 1), ] %>%
-    mutate(trial = 1:n())
-
-  feedback_fun <- function(f) {
-    if (f$f1 == 1) return(1) else return(0)
-  }
-  
-  stimuli$true_category <- apply(stimuli, 1, function(row) feedback_fun(as.list(row)))
-  gcm_responses <- gcm(weights, scaling, stimuli[, 1:5], stimuli$true_category)
-  stimuli$response <- gcm_responses
-  stimuli$correct <- as.integer(gcm_responses == stimuli$true_category)
   stimuli$performance <- cumsum(stimuli$correct) / seq_along(stimuli$correct)
   
   return(stimuli)
@@ -278,6 +233,122 @@ ggplot(multi_agent, aes(x = trial, y = performance, color = factor(scaling))) +
 
 
 ```
+
+
+
+
+
+
+
+
+
+```{r}
+# Define named weight schemes
+get_weight_vector <- function(type) {
+  switch(type,
+    equal = rep(0.2, 5),
+    skewed1 = c(1, 0, 0, 0, 0),
+    skewed2 = c(0, 1, 0, 0, 0),
+    skewed3 = c(0, 0, 1, 0, 0),
+    skewed4 = c(0, 0, 0, 1, 0),
+    skewed5 = c(0, 0, 0, 0, 1),
+    stop("Unknown weight type")
+  )
+}
+
+# Simulate a single session
+simulate_gcm_session <- function(weights, scaling, seed = 1010) {
+  set.seed(seed)
+  
+  combs <- expand.grid(f1 = 0:1, f2 = 0:1, f3 = 0:1, f4 = 0:1, f5 = 0:1)
+  stimuli <- combs[rep(1:nrow(combs), each = 1), ] %>%
+    mutate(trial = 1:n())
+
+  feedback_fun <- function(f) {
+    if (f$f1 == 1) return(1) else return(0)
+  }
+  
+  stimuli$true_category <- apply(stimuli, 1, function(row) feedback_fun(as.list(row)))
+  gcm_responses <- gcm(weights, scaling, stimuli[, 1:5], stimuli$true_category)
+  stimuli$response <- gcm_responses
+  stimuli$correct <- as.integer(gcm_responses == stimuli$true_category)
+  stimuli$performance <- cumsum(stimuli$correct) / seq_along(stimuli$correct)
+  
+  return(stimuli)
+}
+
+# Wrapper to simulate given a row of parameter values
+simulate_responses <- function(agent, c, w) {
+  weights <- get_weight_vector(w)
+  sim <- simulate_gcm_session(weights = weights, scaling = c, seed = 1000 + agent + round(c * 10))
+  sim$agent <- agent
+  sim$scaling <- c
+  sim$weight_type <- w
+  return(sim)
+}
+
+```
+
+
+
+
+```{r}
+library(tidyverse)
+library(furrr)
+
+plan(multisession)
+
+# Create parameter combinations
+param_df <- expand_grid(
+  agent = 1:10,
+  c = seq(0.1, 2, 0.2),
+  w = c("equal", "skewed1", "skewed2", "skewed3", "skewed4", "skewed5")
+)
+
+# Run simulations in parallel
+simulated_responses <- future_pmap_dfr(param_df, simulate_responses)
+
+# Optional: save results
+write_csv(simulated_responses, "GCM_sim.csv")
+
+```
+
+
+```{r}
+gcm_sim <- read_csv("GCM_sim.csv")
+
+```
+
+
+
+
+```{r}
+p3 <- simulated_responses %>%
+  mutate(weight_type = as.factor(weight_type)) %>%
+  ggplot(aes(trial, performance, group = weight_type, color = weight_type)) +
+  geom_smooth() +
+  theme_bw() +
+  facet_wrap(scaling ~ .)
+
+p4 <- simulated_responses %>%
+  mutate(scaling = as.factor(scaling)) %>%
+  ggplot(aes(trial, performance, group = scaling, color = scaling)) +
+  geom_smooth() +
+  theme_bw() +
+  facet_wrap(weight_type ~ .)
+
+
+p3
+p4
+```
+
+
+
+
+
+
+
+
 
 
 
