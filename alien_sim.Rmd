@@ -25,8 +25,6 @@ data <- read_csv("AlienData.txt")
 
 #### Defining the agent
 ```{r}
-library(tidyverse)
-
 ##Distance function (weighted city-block) ###
 distance <- function(x, y, w) {
   sum(w * abs(x - y))
@@ -80,6 +78,7 @@ simulate_gcm_session <- function(weights, scaling, nrep = 1, seed = 1012) {
   gcm_responses <- gcm(weights, scaling, stimuli[, 1:5], stimuli$true_category)
   stimuli$response <- gcm_responses
   stimuli$correct <- as.integer(gcm_responses == stimuli$true_category)
+  stimuli$performance <- cumsum(stimuli$correct) / seq_along(stimuli$correct)
   
   return(stimuli)
 }
@@ -131,11 +130,12 @@ alien_trials$true_danger <- mapply(function(row_id, session) {
 ```{r}
 alien_trials$response <- gcm(
   w = c(0.2, 0.2, 0.2, 0.2, 0.2),  # initial balanced attention, we're not biased
-  c = 5,
+  c = 2,
   obs = alien_trials[, 1:5],
   cat_one = alien_trials$true_danger
 )
 alien_trials$correct <- as.integer(alien_trials$response == alien_trials$true_danger)
+alien_trials$performance <- cumsum(alien_trials$correct) / seq_along(alien_trials$correct)
 
 ```
 
@@ -144,10 +144,21 @@ alien_trials$correct <- as.integer(alien_trials$response == alien_trials$true_da
 
 
 ```{r}
-ggplot(agents_data, aes(x = trial, y = feedback, color = factor(agent_id))) +
+ggplot(alien_trials, aes(x = trial, y = correct)) +
   geom_line() +
-  labs(title = "Performance of 10 agents", x = "Trial", y = "Feedback (Performance)", color = "Agent ID") +
-  theme_minimal()
+  labs(title = "Performance of 1 agent", x = "Trial", y = "Feedback (Performance)", color = "Agent ID") +
+  geom_smooth() +
+  theme_bw()
+
+ggplot(alien_trials, aes(x = trial, y = performance, color = factor(scaling))) +
+  geom_smooth(se = FALSE, method = "loess", span = 0.3) +
+  labs(
+    title = "SLearning Curves",
+    x = "Trial",
+    y = "Correct",
+    color = "Agent ID"
+  ) +
+  theme_bw()
 
 ```
 
@@ -158,7 +169,115 @@ ggplot(agents_data, aes(x = trial, y = feedback, color = factor(agent_id))) +
 
 
 
+```{r}
+# Simulate GCM session for a single agent
+simulate_gcm_session <- function(weights, scaling, seed = 1012) {
+  set.seed(seed)
+  
+  combs <- expand.grid(f1 = 0:1, f2 = 0:1, f3 = 0:1, f4 = 0:1, f5 = 0:1)
+  stimuli <- combs[rep(1:nrow(combs), each = 1), ] %>%
+    mutate(trial = 1:n())
 
+  feedback_fun <- function(f) {
+    if (f$f1 == 1) return(1) else return(0)
+  }
+  
+  stimuli$true_category <- apply(stimuli, 1, function(row) feedback_fun(as.list(row)))
+  gcm_responses <- gcm(weights, scaling, stimuli[, 1:5], stimuli$true_category)
+  stimuli$response <- gcm_responses
+  stimuli$correct <- as.integer(gcm_responses == stimuli$true_category)
+  
+  return(stimuli)
+}
+
+# Run the simulation for multiple agents
+simulate_multiple_agents <- function(n_agents = 10, weights, scaling) {
+  agent_data <- map_dfr(1:n_agents, function(id) {
+    df <- simulate_gcm_session(weights, scaling, seed = 1000 + id)
+    df$agent <- id
+    return(df)
+  })
+  
+  return(agent_data)
+}
+
+# Example usage: 10 agents, balanced attention, scaling = 5
+multi_agent <- simulate_multiple_agents(
+  n_agents = 10,
+  weights = rep(0.2, 5),
+  scaling = 0.9
+)
+
+# Check results
+head(multi_agent)
+
+```
+
+
+```{r}
+# Simulate GCM session for a single agent
+simulate_gcm_session <- function(weights, scaling, seed = 1012) {
+  set.seed(seed)
+  
+  combs <- expand.grid(f1 = 0:1, f2 = 0:1, f3 = 0:1, f4 = 0:1, f5 = 0:1)
+  stimuli <- combs[rep(1:nrow(combs), each = 1), ] %>%
+    mutate(trial = 1:n())
+
+  feedback_fun <- function(f) {
+    if (f$f1 == 1) return(1) else return(0)
+  }
+  
+  stimuli$true_category <- apply(stimuli, 1, function(row) feedback_fun(as.list(row)))
+  gcm_responses <- gcm(weights, scaling, stimuli[, 1:5], stimuli$true_category)
+  stimuli$response <- gcm_responses
+  stimuli$correct <- as.integer(gcm_responses == stimuli$true_category)
+  stimuli$performance <- cumsum(stimuli$correct) / seq_along(stimuli$correct)
+  
+  return(stimuli)
+}
+
+# Run the simulation for multiple agents
+simulate_multiple_agents <- function(n_agents = 10, weights, scaling) {
+  agent_data <- map_dfr(1:n_agents, function(id) {
+    df <- simulate_gcm_session(weights, scaling, seed = 1000 + id)
+    df$agent <- id
+    return(df)
+  })
+  
+  return(agent_data)
+}
+
+# Example usage: 10 agents, balanced attention, scaling = 5
+multi_agent <- simulate_multiple_agents(
+  n_agents = 10,
+  weights = rep(0.2, 5),
+  scaling = 2
+)
+
+# Check results
+head(multi_agent)
+
+```
+
+
+
+
+
+
+```{r}
+
+ggplot(multi_agent, aes(x = trial, y = performance, color = factor(scaling))) +
+  geom_smooth(se = FALSE, method = "loess", span = 0.3) +
+  labs(
+    title = "SLearning Curves",
+    x = "Trial",
+    y = "Correct",
+    color = "Agent ID"
+  ) +
+  theme_bw()
+
+
+```
 
 
 
