@@ -1,26 +1,16 @@
 ---
 title: "Alien_Game_sim"
-author: "Freddy"
+author: "Freddy & Company"
 date: "2025-04-29"
 output: html_document
 ---
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+### packages and data
+```{r packages and data}
+# packages
+pacman::p_load(tidyverse, patchwork, cmdstanr, posterior)
+# data
+data <- read_csv("data/AlienData.txt", show_col_types = FALSE)
 ```
-
-
-
-```{r packages}
-pacman::p_load(tidyverse, patchwork)
-```
-
-
-### read in real data
-```{r}
-data <- read_csv("AlienData.txt")
-```
-
 
 
 #### Defining the agent
@@ -58,7 +48,10 @@ gcm <- function(w, c, obs, cat_one, quiet = TRUE) {
   
   return(rbinom(nrow(obs), 1, r))
 }
+```
 
+
+```{r}
 #Sim
 simulate_gcm_session <- function(weights, scaling, nrep = 1, seed = 1012) {
   set.seed(seed)
@@ -82,8 +75,6 @@ simulate_gcm_session <- function(weights, scaling, nrep = 1, seed = 1012) {
   
   return(stimuli)
 }
-
-
 
 ```
 
@@ -115,8 +106,6 @@ get_danger_label <- function(f, session) {
 }
 ```
 
-
-
 ### apply function
 ```{r}
 alien_trials <- create_alien_trials()
@@ -144,21 +133,17 @@ alien_trials$performance <- cumsum(alien_trials$correct) / seq_along(alien_trial
 
 
 ```{r}
-ggplot(alien_trials, aes(x = trial, y = correct)) +
-  geom_line() +
-  labs(title = "Performance of 1 agent", x = "Trial", y = "Feedback (Performance)", color = "Agent ID") +
-  geom_smooth() +
-  theme_bw()
 
-ggplot(alien_trials, aes(x = trial, y = performance, color = factor(scaling))) +
-  geom_smooth(se = FALSE, method = "loess", span = 0.3) +
-  labs(
-    title = "SLearning Curves",
-    x = "Trial",
-    y = "Correct",
-    color = "Agent ID"
-  ) +
-  theme_bw()
+
+ ggplot(alien_trials, aes(x = trial, y = performance, color = factor(session))) +
+   geom_smooth(se = FALSE, method = "loess", span = 0.3) +
+   labs(
+     title = "SLearning Curves when Sensitivity is 2 ",
+     x = "Trial",
+     y = "Correct",
+     color = "Session"
+   ) +
+   theme_bw()
 
 ```
 
@@ -202,7 +187,7 @@ simulate_multiple_agents <- function(n_agents = 10, weights, scaling) {
   return(agent_data)
 }
 
-# Example usage: 10 agents, balanced attention, scaling = 5
+# Example usage: 10 agents, balanced attention, scaling = 2
 multi_agent <- simulate_multiple_agents(
   n_agents = 10,
   weights = rep(0.2, 5),
@@ -221,7 +206,7 @@ head(multi_agent)
 
 ```{r}
 
-ggplot(multi_agent, aes(x = trial, y = performance, color = factor(scaling))) +
+ggplot(multi_agent, aes(x = trial, y = performance, color = factor(agent))) +
   geom_smooth(se = FALSE, method = "loess", span = 0.3) +
   labs(
     title = "SLearning Curves",
@@ -248,10 +233,10 @@ get_weight_vector <- function(type) {
   switch(type,
     equal = rep(0.2, 5),
     skewed1 = c(1, 0, 0, 0, 0),
-    skewed2 = c(0, 1, 0, 0, 0),
-    skewed3 = c(0, 0, 1, 0, 0),
-    skewed4 = c(0, 0, 0, 1, 0),
-    skewed5 = c(0, 0, 0, 0, 1),
+    skewed2 = c(0.75, 0.0625, 0.0625, 0.0625, 0.0625),
+    skewed3 = c(0.5, 0.125, 0.125, 0.125, 0.25),
+    skewed4 = c(0.05, 0.25, 0.25, 0.25, 0.2),
+    skewed5 = c(0, 0.25, 0.25, 0.25, 0.25),
     stop("Unknown weight type")
   )
 }
@@ -260,7 +245,8 @@ get_weight_vector <- function(type) {
 simulate_gcm_session <- function(weights, scaling, seed = 1010) {
   set.seed(seed)
   
-  combs <- expand.grid(f1 = 0:1, f2 = 0:1, f3 = 0:1, f4 = 0:1, f5 = 0:1)
+  combs <- expand.grid(f1 = 0:1, f2 = 0:1, f3 = 0:1, f4 = 0:1,
+                       f5 = 0:1)
   stimuli <- combs[rep(1:nrow(combs), each = 1), ] %>%
     mutate(trial = 1:n())
 
@@ -295,27 +281,25 @@ simulate_responses <- function(agent, c, w) {
 ```{r}
 library(tidyverse)
 library(furrr)
+library(future)
 
 plan(multisession)
+seed=TRUE
+
+
 
 # Create parameter combinations
 param_df <- expand_grid(
   agent = 1:10,
-  c = seq(0.1, 2, 0.2),
-  w = c("equal", "skewed1", "skewed2", "skewed3", "skewed4", "skewed5")
+  c = seq(0.1, 3, 0.3),
+  w = c("equal", "skewed1", "skewed2" , "skewed3", "skewed4", "skewed5")
 )
 
 # Run simulations in parallel
 simulated_responses <- future_pmap_dfr(param_df, simulate_responses)
 
 # Optional: save results
-write_csv(simulated_responses, "GCM_sim.csv")
-
-```
-
-
-```{r}
-gcm_sim <- read_csv("GCM_sim.csv")
+write_csv(simulated_responses, "data/GCM_sim.csv")
 
 ```
 
@@ -323,32 +307,637 @@ gcm_sim <- read_csv("GCM_sim.csv")
 
 
 ```{r}
-p3 <- simulated_responses %>%
-  mutate(weight_type = as.factor(weight_type)) %>%
+gcm_sim <- read_csv("data/GCM_sim.csv")
+
+```
+
+
+
+
+```{r}
+custom_labels <- c(
+  equal   = "equal",
+  skewed1 = "skewed1 - (1, 0, 0, 0, 0)",
+  skewed2 = "skewed2 - (0.75, 0.0625, 0.0625, 0.0625, 0.0625)",
+  skewed3 = "skewed3 - (0.5, 0.125, 0.125, 0.125, 0.125)",
+  skewed4 = "skewed4 - (0.05, 0.25, 0.25, 0.25, 0.2)",
+  skewed5 = "skewed5 - (0, 0.25, 0.25, 0.25, 0.25)"
+)
+
+p3 <- gcm_sim %>%
+  mutate(weight_type = recode(weight_type, !!!custom_labels)) %>%
   ggplot(aes(trial, performance, group = weight_type, color = weight_type)) +
-  geom_smooth() +
+  geom_smooth(se = FALSE) +
   theme_bw() +
-  facet_wrap(scaling ~ .)
+  facet_wrap(scaling ~ .) +
+  guides(color = guide_legend(title = "Weight Type")) +
+  labs(x = "Trial", y = "Performance")+ 
+  ggtitle("Learning Over Time by Weight Type and Scaling")
 
-p4 <- simulated_responses %>%
-  mutate(scaling = as.factor(scaling)) %>%
+
+p4 <- gcm_sim %>%
+  mutate(weight_type = recode(weight_type, !!!custom_labels),
+         scaling = as.factor(scaling)) %>%
   ggplot(aes(trial, performance, group = scaling, color = scaling)) +
-  geom_smooth() +
+  geom_smooth(se = FALSE) +
   theme_bw() +
-  facet_wrap(weight_type ~ .)
+  facet_wrap(weight_type ~ .) +
+  guides(color = guide_legend(title = "Scaling")) +
+  labs(x = "Trial", y = "Performance")+ 
+  ggtitle("Learning Over Time by Weight Type and Scaling")
+
+
+
 
 
 p3
 p4
+
+```
+
+
+# Perform Stan for single combination
+```{r}
+d <- simulated_responses %>%
+  filter(scaling == "2.8", weight_type == "skewed3")
+
+
+gcm_data <- list(
+  ntrials = nrow(d),
+  nfeatures = 5,
+  cat_one = d$true_category,
+  y=d$response,
+  obs=as.matrix(d[,c("f1", "f2", "f3", "f4", "f5")]),
+  b = 0.5,
+  w_prior_values = rep(1,5),
+  c_prior_values = c(0,1)
+)
+```
+
+
+```{r}
+mod_gcm_single <- cmdstan_model(
+  "alien_model.stan",
+    cpp_options = list(stan_threads = TRUE)
+  )
+
+samples_gcm <- mod_gcm_single$sample(
+  data = gcm_data,
+  seed = 1234,
+  chains = 1,
+  parallel_chains = 1,
+  threads_per_chain = 1,
+  iter_warmup = 1000,
+  iter_sampling = 2000,
+  refresh = 500
+)
+
+```
+
+
+```{r}
+samples_gcm$summary()
+```
+
+
+
+```{r}
+library(gtools)    
+draws_df <- as_draws_df(samples_gcm$draws())
+plot_data <- draws_df %>%
+  select(
+    w1 = `w[1]`,
+    w_prior1 = `w_prior[1]`,
+    w2 = `w[2]`,
+    w_prior2 = `w_prior[2]`,
+    w3 = `w[3]`,
+    w_prior3 = `w_prior[3]`,
+    w4 = `w[4]`,
+    w_prior4 = `w_prior[4]`,
+    w5 = `w[5]`,
+    w_prior5 = `w_prior[5]`,
+    c = `c`,
+    c_prior = `c_prior`
+  )
+ggplot(plot_data) +
+  geom_histogram(aes(c), alpha = 0.6, fill = "lightblue", ,bins=30) +
+  geom_histogram(aes(c_prior), alpha = 0.6, fill = "pink", ,bins=30) +
+  geom_vline(xintercept = d$scaling[1]) +
+  theme_bw()
+
+```
+
+
+```{r}
+# Plot w_prior1
+ggplot(plot_data) +
+  geom_histogram(aes(w1), alpha = 0.6, fill = "lightblue", bins=30) +
+  geom_histogram(aes(w_prior1), alpha = 0.6, fill = "pink", bins=30) +
+  geom_vline(xintercept = 0.5) +
+  theme_bw()
+```
+
+
+```{r}
+# PLot  w_prior2
+ggplot(plot_data) +
+  geom_histogram(aes(w2), alpha = 0.6, fill = "lightblue", bins=30) +
+  geom_histogram(aes(w_prior2), alpha = 0.6, fill = "pink", bins=30) +
+  geom_vline(xintercept = 0.125) +
+  theme_bw()
+```
+
+
+
+# Evaluation on real data
+```{r}
+data <- read_csv("data/AlienData.txt", show_col_types = FALSE)
+data <- data %>% 
+  mutate(response_binary = ifelse(response >= 3, 1, 0))
+
+data <- data %>%
+  mutate(
+    stimuli_clean = gsub("\\.jpg", "", trimws(stimulus))  
+  ) %>%
+  mutate(
+    f1 = as.integer(substr(stimuli_clean, 1, 1)),
+    f2 = as.integer(substr(stimuli_clean, 2, 2)),
+    f3 = as.integer(substr(stimuli_clean, 3, 3)),
+    f4 = as.integer(substr(stimuli_clean, 4, 4)),
+    f5 = as.integer(substr(stimuli_clean, 5, 5))
+  )
+
+data_small <- data[1:100,]
+
+filtered_data <- subset(data, condition == 2 & session == 3)
+
+gcm_data_empirical <- list(
+  ntrials = nrow(filtered_data),
+  nfeatures = 5,
+  cat_one = filtered_data$dangerous,
+  y=filtered_data$response_binary,
+  obs=as.matrix(filtered_data[,c("f1", "f2", "f3", "f4", "f5")]), 
+  b = 0.5,
+  w_prior_values = rep(1,5),
+  c_prior_values = c(0,1)
+)
+
+mod_gcm_single <- cmdstan_model(
+  "alien_model.stan",
+    cpp_options = list(stan_threads = TRUE)
+  )
+
+
+
+samples_gcm_empirical <- mod_gcm_single$sample(
+  data = gcm_data_empirical,
+  seed = 1234,
+  chains=3, 
+  parallel_chains=3, 
+  threads_per_chain=1,
+  iter_warmup = 1000,
+  iter_sampling = 2000,
+  refresh = 1
+)
+
+
+
+```
+
+
+```{r}
+
+```
+
+```{r}
+library(cmdstanr)
+library(dplyr)
+library(tidyr)
+
+# Read and preprocess data
+data <- read_csv("data/AlienData.txt", show_col_types = FALSE) %>%
+  mutate(
+    response_binary = ifelse(response >= 3, 1, 0),
+    stimuli_clean = gsub("\\.jpg", "", trimws(stimulus)),
+    f1 = as.integer(substr(stimuli_clean, 1, 1)),
+    f2 = as.integer(substr(stimuli_clean, 2, 2)),
+    f3 = as.integer(substr(stimuli_clean, 3, 3)),
+    f4 = as.integer(substr(stimuli_clean, 4, 4)),
+    f5 = as.integer(substr(stimuli_clean, 5, 5))
+  )
+
+# Filter for condition 2, session 3
+filtered_data <- subset(data, condition == 2 & session == 3)
+
+# Compile model once (outside the loop)
+mod_gcm_single <- cmdstan_model(
+  "alien_model.stan",
+  cpp_options = list(stan_threads = TRUE)
+)
+
+# Create a list to store results
+results <- list()
+
+# Loop through subjects 1:10
+for (subject_id in 1:10) {
+  print(paste("Iteration", subject_id))
+  # Filter data for current subject
+  subject_data <- filtered_data %>% 
+    filter(subject == subject_id)
+  
+  # Skip if no data for this subject
+  if (nrow(subject_data) == 0) next
+  
+  # Prepare data for Stan
+  gcm_data_empirical <- list(
+    ntrials = nrow(subject_data),
+    nfeatures = 5,
+    cat_one = subject_data$dangerous,
+    y = subject_data$response_binary,
+    obs = as.matrix(subject_data[, c("f1", "f2", "f3", "f4", "f5")]), 
+    b = 0.5,
+    w_prior_values = rep(1, 5),
+    c_prior_values = c(0, 1)
+  )
+  
+  # Fit model
+  samples <- mod_gcm_single$sample(
+    data = gcm_data_empirical,
+    seed = 1234 + subject_id,  # Different seed per subject
+    chains = 3, 
+    parallel_chains = 3, 
+    threads_per_chain = 1,
+    iter_warmup = 1000,
+    iter_sampling = 2000,
+    refresh = 500
+  )
+  
+  # Store results
+  results[[paste0("subject_", subject_id)]] <- samples
+}
+
+# You can now access results for each participant, e.g.:
+# results$participant_1$summary()
 ```
 
 
 
 
+```{r}
+library(bayesplot)
+library(tidybayes)
+draws_df <- as_draws_df(results$subject_1$draws())
+sub_1 <- draws_df %>%
+  pivot_longer(c(`w[1]`, `w[2]`, `w[3]`, `w[4]`, `w[5]`, `c`)) %>%
+  ggplot(aes(
+    x = value, 
+    y = name, 
+    fill = case_when(
+      name == "c"    ~ "c",       # Highlight 'c' in red
+      name == "w[4]" ~ "w4",      # Highlight 'w[3]' in blue
+      TRUE           ~ "other"    # Gray for the rest
+    )
+  )) +
+  stat_halfeye(point_interval = median_qi, .width = 0.89) +
+  scale_fill_manual(
+  values = c(
+    "c"     = "#D4AF37",
+    "w4"  = "#FFDB58",
+    "other" = "grey70"   
+    )) +
+   guides(fill = "none")+
+  labs(
+    title = "Posterior Distributions (Subject 1 - Best)",
+    x = "Value", 
+    y = "Parameter",
+    fill = "Parameter"           # Legend title
+  ) +
+  theme_bw()+
+  theme(
+    panel.grid.minor = element_blank(),
+    legend.position = "top",
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
 
 
 
+draws_df <- as_draws_df(results$subject_10$draws())
+sub_10 <- draws_df %>%
+  pivot_longer(c(`w[1]`, `w[2]`, `w[3]`, `w[4]`, `w[5]`, `c`)) %>%
+  ggplot(aes(
+    x = value, 
+    y = name, 
+    fill = case_when(
+      name == "c"    ~ "c",       
+      TRUE           ~ "other"    # Gray for the rest
+    )
+  )) +
+  stat_halfeye(point_interval = median_qi, .width = 0.89) +
+  scale_fill_manual(
+  values = c(
+    "c"     = "#FFDB58",
+    "other" = "grey70"   
+    )) +
+   guides(fill = "none")+
+  labs(
+    title = "Posterior Distributions (Subject 10 - Worst)",
+    x = "Value", 
+    y = "Parameter",
+    fill = "Parameter"           # Legend title
+  ) +
+  theme_bw()+
+  theme(
+    panel.grid.minor = element_blank(),
+    legend.position = "top",
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
 
+(sub_1 + sub_10)
+```
+
+
+
+```{r}
+library(tidyverse)
+library(tidybayes)
+
+# Suppose your results object contains subject_1 to subject_9
+subject_ids <- paste0("subject_", 1:9)
+
+# Extract w[1] from each subject's draws and label with subject ID
+w1_draws <- map_dfr(subject_ids, function(sid) {
+  draws <- as_draws_df(results[[sid]]$draws())
+  tibble(
+    value = draws$`w[1]`,
+    subject = sid
+  )
+})
+
+# Plot all w[1] posteriors across subjects
+w1_plot <- ggplot(w1_draws, aes(x = value, y = fct_rev(subject), fill = subject)) +
+  stat_halfeye(point_interval = median_qi, .width = 0.89) +
+  scale_fill_brewer(palette = "Set3") +  # Or choose another palette or custom colors
+  labs(
+    title = "Posterior Distributions of w[1] Across Subjects",
+    x = "w[1] Value",
+    y = "Subject"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+w1_plot
+```
+
+
+```{r}
+library(tidyverse)
+library(tidybayes)
+
+# Suppose your results object contains subject_1 to subject_9
+subject_ids <- paste0("subject_", 1:9)
+
+# Extract w[4] from each subject's draws and label with subject ID
+w4_draws <- map_dfr(subject_ids, function(sid) {
+  draws <- as_draws_df(results[[sid]]$draws())
+  tibble(
+    value = draws$`w[4]`,
+    subject = sid
+  )
+})
+
+# Plot all w[4] posteriors across subjects
+w4_plot <- ggplot(w4_draws, aes(x = value, y = fct_rev(subject), fill = subject)) +
+  stat_halfeye(point_interval = median_qi, .width = 0.89) +
+  scale_fill_brewer(palette = "Set3") +  # Or choose another palette or custom colors
+  labs(
+    title = "Posterior Distributions of w[4] Across Subjects",
+    x = "w[4] Value",
+    y = "Subject"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+w4_plot
+```
+
+```{r}
+library(tidyverse)
+library(tidybayes)
+
+# Suppose your results object contains subject_1 to subject_9
+subject_ids <- paste0("subject_", 1:9)
+
+# Extract w[5] from each subject's draws and label with subject ID
+w5_draws <- map_dfr(subject_ids, function(sid) {
+  draws <- as_draws_df(results[[sid]]$draws())
+  tibble(
+    value = draws$`w[5]`,
+    subject = sid
+  )
+})
+
+# Plot all w[5] posteriors across subjects
+w5_plot <- ggplot(w5_draws, aes(x = value, y = fct_rev(subject), fill = subject)) +
+  stat_halfeye(point_interval = median_qi, .width = 0.89) +
+  scale_fill_brewer(palette = "Set3") +  # Or choose another palette or custom colors
+  labs(
+    title = "Posterior Distributions of w[5] Across Subjects",
+    x = "w[5] Value",
+    y = "Subject"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+w5_plot
+```
+
+
+
+```{r}
+library(tidyverse)
+library(tidybayes)
+
+# Suppose your results object contains subject_1 to subject_9
+subject_ids <- paste0("subject_", 1:9)
+
+# Extract c from each subject's draws and label with subject ID
+c_draws <- map_dfr(subject_ids, function(sid) {
+  draws <- as_draws_df(results[[sid]]$draws())
+  tibble(
+    value = draws$`c`,
+    subject = sid
+  )
+})
+
+# Plot all w[1] posteriors across subjects
+c_plot <- ggplot(c_draws, aes(x = value, y = fct_rev(subject), fill = subject)) +
+  stat_halfeye(point_interval = median_qi, .width = 0.89) +
+  scale_fill_brewer(palette = "Set3") +  # Or choose another palette or custom colors
+  labs(
+    title = "Posterior Distributions of c Across Subjects",
+    x = "c Value",
+    y = "Subject"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+c_plot
+```
+
+```{r}
+(w1_plot +  c_plot)
+(w5_plot + w4_plot)
+```
+
+```{r}
+library(tidyverse)
+library(posterior)
+
+# Get posterior draws
+draws <- as_draws_df(results$subject_1)
+
+# Extract r[1] to r[104] and average across draws (rows)
+predicted_probs <- draws %>%
+  select(starts_with("r[")) %>%
+  summarise(across(everything(), mean)) %>%
+  pivot_longer(everything(),
+               names_to = "trial", values_to = "predicted_prob") %>%
+  mutate(trial = as.integer(str_extract(trial, "\\d+")),
+         predicted_class = round(predicted_prob))  # round for 0/1 class
+true_labels <- filtered_data %>%
+  filter(subject == 1) %>%
+  mutate(trial = row_number()) %>%
+  select(trial, true_label = response_binary)
+
+accuracy_df <- predicted_probs %>%
+  left_join(true_labels, by = "trial") %>%
+  mutate(correct = predicted_class == true_label)
+ggplot(accuracy_df, aes(x = trial, y = correct * 100)) +
+  geom_line(color = "steelblue") +
+  geom_point() +
+  labs(
+    title = "Prediction Accuracy per Trial (Subject 1)",
+    x = "Trial",
+    y = "Accuracy (%)"
+  ) +
+  ylim(0, 100) +
+  theme_minimal()
+
+
+
+```
+```{r}
+library(tidyverse)
+library(posterior)
+
+accuracy_all <- map_dfr(subject_ids, function(sid) {
+  # Extract posterior draws
+  draws <- as_draws_df(results[[paste0("subject_", sid)]])
+  
+  # Get posterior mean predictions
+  predicted_probs <- draws %>%
+    select(starts_with("r[")) %>%
+    summarise(across(everything(), mean)) %>%
+    pivot_longer(everything(),
+                 names_to = "trial", values_to = "predicted_prob") %>%
+    mutate(trial = as.integer(str_extract(trial, "\\d+")),
+           subject = sid)
+  
+  # Get true labels
+  true_labels <- filtered_data %>%
+    filter(subject == sid) %>%
+    mutate(trial = row_number()) %>%
+    select(trial, true_label = response_binary)
+  
+  # Join predicted probabilities with true labels
+  predicted_probs %>%
+    left_join(true_labels, by = "trial") %>%
+    mutate(
+      # Calculate probability of correct prediction
+      correct_prob = ifelse(true_label == 1, predicted_prob, 1 - predicted_prob)
+    )
+})
+
+# Calculate the mean chance of correct prediction per trial
+accuracy_summary <- accuracy_all %>%
+  group_by(trial) %>%
+  summarise(mean_correct_prob = mean(correct_prob) * 100)
+
+# Plot the result
+e1 <- ggplot(accuracy_summary, aes(x = trial, y = mean_correct_prob)) +
+  geom_smooth(color = "#1f77b4") +
+  geom_point(size = 1.5) +
+  labs(
+    title = "Mean Probability of Correct Prediction per Trial (Averaged Across Subjects)",
+    x = "Trial Number",
+    y = "Mean Probability of Correct (%)"
+  ) +
+  ylim(40, 80) +
+  theme_minimal()
+
+e2 <-  ggplot(accuracy_all, aes(x = trial, y = correct_prob, color = factor(subject))) +
+  geom_smooth(method = "loess", se = FALSE, linewidth = 1.2) +  # Smoothing line (no confidence interval)
+  labs(
+    title = "Mean Probability of Correct Prediction per Trial (By Subject)",
+    x = "Trial Number",
+    y = "Probability of Correct Prediction",
+    color = "Subject"
+  ) +
+  theme_minimal() +
+  scale_color_viridis_d() +
+  ylim(0.4, 0.8)  # Limit y-axis between 0.4 and 0.8
+(e1+e2)
+```
+
+
+```{r}
+# Extract all posterior predictions (probabilities for predicting 1)
+draws <- as_draws_df(results$subject_1)
+
+# Convert to binary predictions per draw (round 0.5 threshold)
+pred_classes <- draws %>%
+  select(starts_with("r[")) %>%
+  mutate(draw = row_number()) %>%
+  pivot_longer(cols = -draw, names_to = "trial", values_to = "prob") %>%
+  mutate(trial = as.integer(str_extract(trial, "\\d+")),
+         pred = round(prob))  # binary prediction for each draw
+# True responses
+true <- filtered_data %>%
+  filter(subject == 1) %>%
+  mutate(trial = row_number()) %>%
+  select(trial, true = response_binary)
+
+# Merge and visualize
+ppc_df <- pred_classes %>%
+  left_join(true, by = "trial")
+
+# Plot: posterior predictive distribution per trial vs true
+ppc_df %>%
+  group_by(trial) %>%
+  summarise(
+    pred_mean = mean(pred),
+    true = unique(true)
+  ) %>%
+  ggplot(aes(x = trial)) +
+  geom_line(aes(y = pred_mean * 100), color = "blue") +
+  geom_point(aes(y = true * 100), color = "red") +
+  labs(
+    title = "Posterior Predictive Check per Trial",
+    y = "Predicted vs True (% 1s)",
+    x = "Trial"
+  ) +
+  ylim(0, 100) +
+  theme_minimal()
+
+```
 
 
 
